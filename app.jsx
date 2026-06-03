@@ -53,8 +53,11 @@ function smartScore({ diff, bucket, rule, trend, delta, coverage, hiddenTopScore
   const trendPenalty = trend === "up" && diff < rule.steady ? Math.min(8, Math.max(0, delta || 0) * 1.2) : 0;
   const missingPenalty = Math.max(0, 2 - coverage) * 3;
   const hiddenPenalty = hiddenTopScore ? 4 : 0;
-  const base = bucket === "冲刺" ? 82 : bucket === "稳妥" ? 88 : 80;
-  return clamp(40, 96, Math.round(base - distancePenalty - trendPenalty - missingPenalty - hiddenPenalty + stableJitter(key)));
+  const base = bucket === "冲刺" ? 78 : bucket === "稳妥" ? 92 : 70;
+  const maxByBucket = { 冲刺: 86, 稳妥: 96, 保底: 78 };
+  const minByBucket = { 冲刺: 45, 稳妥: 62, 保底: 40 };
+  const score = Math.round(base - distancePenalty - trendPenalty - missingPenalty - hiddenPenalty + stableJitter(key));
+  return clamp(minByBucket[bucket], maxByBucket[bucket], score);
 }
 
 function matchSchool(s, score, risk) {
