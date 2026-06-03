@@ -13,19 +13,53 @@ function clamp(min, max, value) {
   return Math.max(min, Math.min(max, value));
 }
 
+const MATCH_RULES = {
+  中考: {
+    保守: { minDiff: -8, maxDiff: 35, steady: 6, safe: 18, ideals: { 冲刺: -3, 稳妥: 10, 保底: 24 }, penalty: 2.1 },
+    均衡: { minDiff: -15, maxDiff: 32, steady: 0, safe: 14, ideals: { 冲刺: -7, 稳妥: 6, 保底: 21 }, penalty: 1.9 },
+    激进: { minDiff: -24, maxDiff: 28, steady: -5, safe: 10, ideals: { 冲刺: -12, 稳妥: 2, 保底: 17 }, penalty: 1.75 },
+  },
+  高考: {
+    保守: { minDiff: -10, maxDiff: 55, steady: 8, safe: 24, ideals: { 冲刺: -4, 稳妥: 14, 保底: 34 }, penalty: 1.35 },
+    均衡: { minDiff: -24, maxDiff: 48, steady: 0, safe: 18, ideals: { 冲刺: -10, 稳妥: 8, 保底: 28 }, penalty: 1.25 },
+    激进: { minDiff: -38, maxDiff: 40, steady: -8, safe: 12, ideals: { 冲刺: -18, 稳妥: 2, 保底: 22 }, penalty: 1.15 },
+  },
+};
+
+function bucketForDiff(diff, rule) {
+  if (diff >= rule.safe) return "保底";
+  if (diff >= rule.steady) return "稳妥";
+  return "冲刺";
+}
+
+function historyCoverage(item) {
+  const history = item.scoreHistory || {};
+  const values = Object.keys(history).filter((year) => year !== "2025" && history[year] != null);
+  return values.length;
+}
+
+function smartScore({ diff, bucket, rule, trend, delta, coverage, hiddenTopScore = false }) {
+  const ideal = rule.ideals[bucket];
+  const distancePenalty = Math.abs(diff - ideal) * rule.penalty;
+  const trendPenalty = trend === "up" && diff < rule.steady ? Math.min(8, Math.max(0, delta || 0) * 1.2) : 0;
+  const missingPenalty = Math.max(0, 2 - coverage) * 3;
+  const hiddenPenalty = hiddenTopScore ? 4 : 0;
+  const base = bucket === "冲刺" ? 86 : bucket === "稳妥" ? 94 : 88;
+  return clamp(40, 99, Math.round(base - distancePenalty - trendPenalty - missingPenalty - hiddenPenalty));
+}
+
 function matchSchool(s, score, risk) {
   const diff = score - s.score2025;
-  const thresholds = {
-    保守: { steady: 5, safe: 15 },
-    均衡: { steady: 0, safe: 10 },
-    激进: { steady: -5, safe: 6 },
-  }[risk] || { steady: 0, safe: 10 };
-  const bucket = diff >= thresholds.safe ? "保底" : diff >= thresholds.steady ? "稳妥" : "冲刺";
-  const rec = clamp(35, 99, Math.round(82 + diff * 1.7 + (risk === "激进" ? 4 : risk === "保守" ? -3 : 0)));
+  const rule = MATCH_RULES.中考[risk] || MATCH_RULES.中考.均衡;
+  const recommendable = diff >= rule.minDiff && diff <= rule.maxDiff;
+  const bucket = bucketForDiff(diff, rule);
+  const coverage = historyCoverage(s);
+  const rec = smartScore({ diff, bucket, rule, trend: s.trend, delta: s.delta, coverage });
   return {
     ...s,
     diff: Number(diff.toFixed(1)),
     bucket,
+    recommendable,
     rec,
     stars: clamp(1, 5, Math.ceil(rec / 20)),
   };
@@ -34,17 +68,16 @@ function matchSchool(s, score, risk) {
 function matchProgram(p, score, risk) {
   const targetScore = p.score2025 ?? 580;
   const diff = score - targetScore;
-  const thresholds = {
-    保守: { steady: 8, safe: 20 },
-    均衡: { steady: 0, safe: 12 },
-    激进: { steady: -8, safe: 8 },
-  }[risk] || { steady: 0, safe: 12 };
-  const bucket = diff >= thresholds.safe ? "保底" : diff >= thresholds.steady ? "稳妥" : "冲刺";
-  const rec = clamp(30, 99, Math.round(80 + diff * 1.2 + (risk === "激进" ? 5 : risk === "保守" ? -4 : 0)));
+  const rule = MATCH_RULES.高考[risk] || MATCH_RULES.高考.均衡;
+  const recommendable = diff >= rule.minDiff && diff <= rule.maxDiff;
+  const bucket = bucketForDiff(diff, rule);
+  const coverage = historyCoverage(p);
+  const rec = smartScore({ diff, bucket, rule, trend: p.trend, delta: p.delta, coverage, hiddenTopScore: p.score2025 == null });
   return {
     ...p,
     diff: Number(diff.toFixed(1)),
     bucket,
+    recommendable,
     rec,
     stars: clamp(1, 5, Math.ceil(rec / 20)),
   };
@@ -547,6 +580,7 @@ function App() {
   const items = useMemo(() => {
     let xs = isGaokao
       ? GAOKAO_PROGRAMS.map(p => matchProgram(p, score, state.risk)).filter(p => {
+          if (!p.recommendable) return false;
           if (state.search && !p.name.includes(state.search) && !p.code.includes(state.search)) return false;
           if (state.sameScore === "580分及以上" && p.score2025 != null) return false;
           if (state.sameScore === "580分以下" && p.score2025 == null) return false;
@@ -556,6 +590,7 @@ function App() {
           return true;
         })
       : SCHOOLS.map(s => matchSchool(s, score, state.risk)).filter(s => {
+          if (!s.recommendable) return false;
           if (state.search && !s.name.includes(state.search)) return false;
           if (state.nature !== "不限" && s.nature !== state.nature) return false;
           if (state.sameScore !== "不限" && s.sameScore2025 !== state.sameScore) return false;
