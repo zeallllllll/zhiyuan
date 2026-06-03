@@ -44,19 +44,58 @@ function stableJitter(key) {
   for (let i = 0; i < text.length; i += 1) {
     hash = (hash * 31 + text.charCodeAt(i)) % 997;
   }
-  return (hash % 9) - 4;
+  return (hash % 5) - 2;
 }
 
-function smartScore({ diff, bucket, rule, trend, delta, coverage, hiddenTopScore = false, key }) {
+function schoolTypeBonus(item, bucket) {
+  const score = item.score2025 ?? 580;
+  const isTopBand = score >= (item.code ? 570 : 750);
+  const isHighBand = score >= (item.code ? 540 : 735);
+  if (bucket === "冲刺" && isTopBand) return 3;
+  if (bucket === "稳妥" && isHighBand) return 2;
+  if (bucket === "保底" && isTopBand) return 1;
+  return 0;
+}
+
+function riskBias(bucket, risk) {
+  const table = {
+    保守: { 冲刺: -6, 稳妥: 2, 保底: 4 },
+    均衡: { 冲刺: 0, 稳妥: 3, 保底: 0 },
+    激进: { 冲刺: 5, 稳妥: 1, 保底: -5 },
+  };
+  return (table[risk] || table.均衡)[bucket] || 0;
+}
+
+function trendBias({ bucket, trend, delta }) {
+  if (trend === "new" || delta == null) return -2;
+  if (trend === "flat") return 2;
+  if (trend === "down") return bucket === "冲刺" ? 3 : 1;
+  if (trend === "up") {
+    if (bucket === "冲刺") return -Math.min(8, Math.max(2, delta * 1.2));
+    if (bucket === "稳妥") return -Math.min(4, Math.max(0, delta * 0.5));
+    return -1;
+  }
+  return 0;
+}
+
+function smartScore({ item, diff, bucket, rule, risk, trend, delta, coverage, hiddenTopScore = false, key }) {
   const ideal = rule.ideals[bucket];
   const distancePenalty = Math.abs(diff - ideal) * rule.penalty;
-  const trendPenalty = trend === "up" && diff < rule.steady ? Math.min(8, Math.max(0, delta || 0) * 1.2) : 0;
-  const missingPenalty = Math.max(0, 2 - coverage) * 3;
-  const hiddenPenalty = hiddenTopScore ? 4 : 0;
-  const base = bucket === "冲刺" ? 78 : bucket === "稳妥" ? 92 : 70;
-  const maxByBucket = { 冲刺: 86, 稳妥: 96, 保底: 78 };
-  const minByBucket = { 冲刺: 45, 稳妥: 62, 保底: 40 };
-  const score = Math.round(base - distancePenalty - trendPenalty - missingPenalty - hiddenPenalty + stableJitter(key));
+  const coverageBonus = Math.min(4, coverage);
+  const hiddenPenalty = hiddenTopScore ? 5 : 0;
+  const base = { 冲刺: 62, 稳妥: 88, 保底: 74 }[bucket];
+  const maxByBucket = { 冲刺: 78, 稳妥: 96, 保底: 84 };
+  const minByBucket = { 冲刺: 38, 稳妥: 68, 保底: 54 };
+  const score = Math.round(
+    base
+    - distancePenalty
+    + riskBias(bucket, risk)
+    + trendBias({ bucket, trend, delta })
+    + schoolTypeBonus(item, bucket)
+    + coverageBonus
+    - hiddenPenalty
+    + stableJitter(key)
+  );
   return clamp(minByBucket[bucket], maxByBucket[bucket], score);
 }
 
@@ -66,7 +105,7 @@ function matchSchool(s, score, risk) {
   const recommendable = diff >= rule.minDiff && diff <= rule.maxDiff;
   const bucket = bucketForDiff(diff, rule);
   const coverage = historyCoverage(s);
-  const rec = smartScore({ diff, bucket, rule, trend: s.trend, delta: s.delta, coverage, key: s.name });
+  const rec = smartScore({ item: s, diff, bucket, rule, risk, trend: s.trend, delta: s.delta, coverage, key: s.name });
   return {
     ...s,
     diff: Number(diff.toFixed(1)),
@@ -84,7 +123,7 @@ function matchProgram(p, score, risk) {
   const recommendable = diff >= rule.minDiff && diff <= rule.maxDiff;
   const bucket = bucketForDiff(diff, rule);
   const coverage = historyCoverage(p);
-  const rec = smartScore({ diff, bucket, rule, trend: p.trend, delta: p.delta, coverage, hiddenTopScore: p.score2025 == null, key: p.code });
+  const rec = smartScore({ item: p, diff, bucket, rule, risk, trend: p.trend, delta: p.delta, coverage, hiddenTopScore: p.score2025 == null, key: p.code });
   return {
     ...p,
     diff: Number(diff.toFixed(1)),
