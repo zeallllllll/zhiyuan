@@ -109,6 +109,39 @@ function historyText(history, years, labels) {
     .join(" / ");
 }
 
+function stabilityScore(item) {
+  const values = Object.values(item.scoreHistory || {}).filter(v => typeof v === "number");
+  if (values.length < 2) return null;
+  const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+  const variance = values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / values.length;
+  return clamp(35, 96, Math.round(96 - Math.sqrt(variance) * 4));
+}
+
+function MatchRing({ value, tone = "green" }) {
+  const deg = clamp(0, 100, value) * 3.6;
+  return (
+    <div className={`match-ring ring-${tone}`} style={{"--deg": `${deg}deg`}}>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function recommendationReason(item, mode) {
+  const lineName = mode === "高考" ? "投档线" : "录取线";
+  const diffText = `${item.diff >= 0 ? "低于您" : "高于您"}${formatScore(Math.abs(item.diff))}分`;
+  if (item.bucket === "冲刺") return `${lineName}${formatScore(item.score2025)}分，${diffText}，可作为冲刺目标`;
+  if (item.bucket === "稳妥") return `${lineName}${formatScore(item.score2025)}分，${diffText}，匹配度较高`;
+  return `${lineName}${formatScore(item.score2025)}分，${diffText}，录取安全垫较足`;
+}
+
+function bucketMeta(bucket) {
+  return {
+    冲刺: { title: "冲刺梯队", subtitle: "有一定挑战，适合作为理想目标", tone: "orange", icon: <IconTarget size={22}/> },
+    稳妥: { title: "稳妥梯队", subtitle: "分数高度匹配，优先重点考虑", tone: "green", icon: <IconShield size={22}/> },
+    保底: { title: "保底梯队", subtitle: "安全垫较足，防止滑档", tone: "blue", icon: <IconShield size={22}/> },
+  }[bucket];
+}
+
 function Hero({ mode, itemCount }) {
   const isGaokao = mode === "高考";
   return (
@@ -310,70 +343,41 @@ function Metrics({ items, mode }) {
 function SchoolRow({ s }) {
   const bucketCls = s.bucket === "冲刺" ? "pill-chong" : s.bucket === "稳妥" ? "pill-wen" : "pill-bao";
   const recCls = s.bucket === "冲刺" ? "rec-num-orange" : "rec-num-green";
+  const stable = stabilityScore(s);
   return (
-    <div className="row">
-      <div className="rank">
+    <div className="ladder-row">
+      <div className="ladder-rank">
         {s.rank <= 3 ? <div className="rank-medal"><Medal rank={s.rank}/></div> : s.rank}
       </div>
-      <div className="logo" style={{background: s.logoBg, color: "#fff"}}>
-        {s.logoText}
-      </div>
-      <div className="school-meta">
+      <div className="ladder-school">
+        <div className="logo" style={{background: s.logoBg, color: "#fff"}}>{s.logoText}</div>
         <div className="school-name-row">
           <span className="school-name">{s.name}</span>
           {s.tags.map((t, i) => (
             <span key={i} className={`tag tag-${t.kind}`}>{t.label}</span>
           ))}
         </div>
-        <div className="school-loc">
-          <IconPin size={11}/> {s.area}
-          <span className="sep">|</span> {s.nature}
-          <span className="sep">|</span> 同分优待：{s.sameScore2025}
-        </div>
-        <div className="school-blurb">
-          <IconBook size={11}/> {s.blurb}
-        </div>
       </div>
-
-      <div className="col">
-        <span className="col-h">历年线</span>
-        <span className="col-v plain history-line">{historyText(s.scoreHistory, [2022, 2023, 2024])}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">2025录取线</span>
-        <span className="col-v">{formatScore(s.score2025)}</span>
-        <span className={`delta ${s.trend === "down" ? "down" : ""}`}>{deltaText(s)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">趋势</span>
-        <span className={`trend ${s.trend}`}>
-          {trendLabel(s.trend)}
-          {s.trend !== "new" && <IconTrendUp size={14}/>}
-        </span>
-      </div>
-      <div className="col">
-        <span className="col-h">语数外</span>
-        <span className="col-v">{formatScore(s.ysw2025)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">数学 / 语文</span>
-        <span className="col-v plain">{formatScore(s.math2025)} / {formatScore(s.chinese2025)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">综合测试</span>
-        <span className="col-v">{formatScore(s.test2025)}</span>
-      </div>
-
-      <div className="rec">
-        <span className="col-h">匹配指数</span>
-        <span className="rec-score">
-          <span className={recCls}>{s.rec}</span>
-          <Stars n={s.stars}/>
-        </span>
-      </div>
-      <div className="cell-actions">
+      <div className="ladder-cell">
         <span className={`pill ${bucketCls}`}>{s.bucket}</span>
-        <button className="btn-detail">分差 {s.diff >= 0 ? "+" : ""}{formatScore(s.diff)}</button>
+        <span className="mini-text">{historyText(s.scoreHistory, [2022, 2023, 2024])}</span>
+      </div>
+      <div className="ladder-score">
+        <strong>{formatScore(s.score2025)}</strong>
+        <span>{s.diff >= 0 ? "低于您" : "高于您"}{formatScore(Math.abs(s.diff))}分</span>
+      </div>
+      <div className="ladder-ring">
+        {stable == null ? <span className="dash">-</span> : <MatchRing value={stable} tone="green"/>}
+      </div>
+      <div className="ladder-ring">
+        <MatchRing value={s.rec} tone={s.bucket === "冲刺" ? "orange" : s.bucket === "保底" ? "blue" : "green"}/>
+      </div>
+      <div className="ladder-reason">
+        <strong>{recommendationReason(s, "中考")}</strong>
+        <span>语数外 {formatScore(s.ysw2025)}，趋势{trendLabel(s.trend)}</span>
+      </div>
+      <div className="ladder-actions">
+        <button className="btn-detail">查看</button>
       </div>
     </div>
   );
@@ -411,62 +415,38 @@ function SchoolTable({ items, sort, setSort }) {
 function ProgramRow({ p }) {
   const bucketCls = p.bucket === "冲刺" ? "pill-chong" : p.bucket === "稳妥" ? "pill-wen" : "pill-bao";
   const recCls = p.bucket === "冲刺" ? "rec-num-orange" : "rec-num-green";
+  const stable = stabilityScore(p);
   return (
-    <div className="row">
-      <div className="rank">{p.rank <= 3 ? <div className="rank-medal"><Medal rank={p.rank}/></div> : p.rank}</div>
-      <div className="logo" style={{background: "#324a7a", color: "#fff"}}>{p.name.slice(0, 1)}</div>
-      <div className="school-meta">
+    <div className="ladder-row">
+      <div className="ladder-rank">{p.rank <= 3 ? <div className="rank-medal"><Medal rank={p.rank}/></div> : p.rank}</div>
+      <div className="ladder-school">
+        <div className="logo" style={{background: "#324a7a", color: "#fff"}}>{p.name.slice(0, 1)}</div>
         <div className="school-name-row">
           <span className="school-name">{p.name}</span>
           <span className="tag tag-blue">{p.code}</span>
           {p.score2025 == null && <span className="tag tag-orange">580分及以上</span>}
         </div>
-        <div className="school-loc">
-          <IconPin size={11}/> 上海高考
-          <span className="sep">|</span> 本科普通批
-          <span className="sep">|</span> 平行志愿院校专业组
-        </div>
-        <div className="school-blurb">
-          <IconBook size={11}/> 2025投档线 {p.score2025Label}，末位语数合计 {formatScore(p.cnMath2025)}。
-        </div>
       </div>
-
-      <div className="col">
-        <span className="col-h">历年线</span>
-        <span className="col-v plain history-line">{historyText(p.scoreLabelHistory, [2021, 2022, 2023, 2024])}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">2025投档线</span>
-        <span className="col-v">{p.score2025Label}</span>
-        <span className={`delta ${p.trend === "down" ? "down" : ""}`}>{deltaText(p)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">语数合计</span>
-        <span className="col-v">{formatScore(p.cnMath2025)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">语/数最高</span>
-        <span className="col-v">{formatScore(p.highCnMath2025)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">外语</span>
-        <span className="col-v">{formatScore(p.foreign2025)}</span>
-      </div>
-      <div className="col">
-        <span className="col-h">选考高/中/低</span>
-        <span className="col-v plain">{formatScore(p.electiveHigh2025)} / {formatScore(p.electiveMid2025)} / {formatScore(p.electiveLow2025)}</span>
-      </div>
-
-      <div className="rec">
-        <span className="col-h">匹配指数</span>
-        <span className="rec-score">
-          <span className={recCls}>{p.rec}</span>
-          <Stars n={p.stars}/>
-        </span>
-      </div>
-      <div className="cell-actions">
+      <div className="ladder-cell">
         <span className={`pill ${bucketCls}`}>{p.bucket}</span>
-        <button className="btn-detail">分差 {p.diff >= 0 ? "+" : ""}{formatScore(p.diff)}</button>
+        <span className="mini-text">{historyText(p.scoreLabelHistory, [2021, 2022, 2023, 2024])}</span>
+      </div>
+      <div className="ladder-score">
+        <strong>{p.score2025Label}</strong>
+        <span>{p.diff >= 0 ? "低于您" : "高于您"}{formatScore(Math.abs(p.diff))}分</span>
+      </div>
+      <div className="ladder-ring">
+        {stable == null ? <span className="dash">-</span> : <MatchRing value={stable} tone="green"/>}
+      </div>
+      <div className="ladder-ring">
+        <MatchRing value={p.rec} tone={p.bucket === "冲刺" ? "orange" : p.bucket === "保底" ? "blue" : "green"}/>
+      </div>
+      <div className="ladder-reason">
+        <strong>{recommendationReason(p, "高考")}</strong>
+        <span>语数合计 {formatScore(p.cnMath2025)}，趋势{trendLabel(p.trend)}</span>
+      </div>
+      <div className="ladder-actions">
+        <button className="btn-detail">查看</button>
       </div>
     </div>
   );
@@ -508,17 +488,26 @@ function namesFor(items, bucket) {
 
 function BucketSection({ bucket, items, unit, children }) {
   if (!items.length) return null;
-  const desc = {
-    冲刺: "分数略高，可以作为理想目标",
-    稳妥: "分差接近，优先重点考虑",
-    保底: "低于当前分数，但未低到失去参考意义",
-  }[bucket];
+  const meta = bucketMeta(bucket);
   return (
-    <div className={`bucket-section bucket-${bucket}`}>
+    <div className={`bucket-section bucket-${bucket} bucket-tone-${meta.tone}`}>
       <div className="bucket-head">
-        <span className={`pill ${bucket === "冲刺" ? "pill-chong" : bucket === "稳妥" ? "pill-wen" : "pill-bao"}`}>{bucket}</span>
+        <span className="bucket-icon">{meta.icon}</span>
+        <div className="bucket-title-wrap">
+          <div className="bucket-title">{meta.title}</div>
+          <div className="bucket-desc">{meta.subtitle}</div>
+        </div>
         <span className="bucket-count">{items.length} {unit}</span>
-        <span className="bucket-desc">{desc}</span>
+      </div>
+      <div className="ladder-table-head">
+        <span>序号</span>
+        <span>学校名称</span>
+        <span>层次</span>
+        <span>统招线</span>
+        <span>稳定度</span>
+        <span>匹配</span>
+        <span>推荐理由</span>
+        <span>操作</span>
       </div>
       {children}
     </div>
