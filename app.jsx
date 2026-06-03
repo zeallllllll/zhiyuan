@@ -38,14 +38,23 @@ function historyCoverage(item) {
   return values.length;
 }
 
-function smartScore({ diff, bucket, rule, trend, delta, coverage, hiddenTopScore = false }) {
+function stableJitter(key) {
+  const text = String(key || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 997;
+  }
+  return (hash % 9) - 4;
+}
+
+function smartScore({ diff, bucket, rule, trend, delta, coverage, hiddenTopScore = false, key }) {
   const ideal = rule.ideals[bucket];
   const distancePenalty = Math.abs(diff - ideal) * rule.penalty;
   const trendPenalty = trend === "up" && diff < rule.steady ? Math.min(8, Math.max(0, delta || 0) * 1.2) : 0;
   const missingPenalty = Math.max(0, 2 - coverage) * 3;
   const hiddenPenalty = hiddenTopScore ? 4 : 0;
-  const base = bucket === "冲刺" ? 86 : bucket === "稳妥" ? 94 : 88;
-  return clamp(40, 99, Math.round(base - distancePenalty - trendPenalty - missingPenalty - hiddenPenalty));
+  const base = bucket === "冲刺" ? 82 : bucket === "稳妥" ? 88 : 80;
+  return clamp(40, 96, Math.round(base - distancePenalty - trendPenalty - missingPenalty - hiddenPenalty + stableJitter(key)));
 }
 
 function matchSchool(s, score, risk) {
@@ -54,7 +63,7 @@ function matchSchool(s, score, risk) {
   const recommendable = diff >= rule.minDiff && diff <= rule.maxDiff;
   const bucket = bucketForDiff(diff, rule);
   const coverage = historyCoverage(s);
-  const rec = smartScore({ diff, bucket, rule, trend: s.trend, delta: s.delta, coverage });
+  const rec = smartScore({ diff, bucket, rule, trend: s.trend, delta: s.delta, coverage, key: s.name });
   return {
     ...s,
     diff: Number(diff.toFixed(1)),
@@ -72,7 +81,7 @@ function matchProgram(p, score, risk) {
   const recommendable = diff >= rule.minDiff && diff <= rule.maxDiff;
   const bucket = bucketForDiff(diff, rule);
   const coverage = historyCoverage(p);
-  const rec = smartScore({ diff, bucket, rule, trend: p.trend, delta: p.delta, coverage, hiddenTopScore: p.score2025 == null });
+  const rec = smartScore({ diff, bucket, rule, trend: p.trend, delta: p.delta, coverage, hiddenTopScore: p.score2025 == null, key: p.code });
   return {
     ...p,
     diff: Number(diff.toFixed(1)),
@@ -388,7 +397,11 @@ function SchoolTable({ items, sort, setSort }) {
         </div>
       </div>
       <div className="school-list">
-        {items.map(s => <SchoolRow key={s.id} s={s}/>)}
+        <GroupedRows
+          items={items}
+          unit="所"
+          renderItem={(s) => <SchoolRow key={s.id} s={s}/>}
+        />
       </div>
       <div className="more">数据来源：上海市教育考试院 2022-2025 年浦东新区名额分配到区录取最低分数线 <IconChevronDown size={14}/></div>
     </section>
@@ -477,7 +490,11 @@ function ProgramTable({ items, sort, setSort }) {
         </div>
       </div>
       <div className="school-list">
-        {items.map(p => <ProgramRow key={p.id} p={p}/>)}
+        <GroupedRows
+          items={items}
+          unit="组"
+          renderItem={(p) => <ProgramRow key={p.id} p={p}/>}
+        />
       </div>
       <div className="more">数据来源：上海市教育考试院 2021-2025 年本科普通批次平行志愿院校专业组投档分数线 <IconChevronDown size={14}/></div>
     </section>
@@ -487,6 +504,40 @@ function ProgramTable({ items, sort, setSort }) {
 function namesFor(items, bucket) {
   const xs = items.filter(s => s.bucket === bucket).slice(0, 3).map(s => s.name);
   return xs.length ? xs.join("、") : "暂无匹配学校";
+}
+
+function BucketSection({ bucket, items, unit, children }) {
+  if (!items.length) return null;
+  const desc = {
+    冲刺: "分数略高，可以作为理想目标",
+    稳妥: "分差接近，优先重点考虑",
+    保底: "低于当前分数，但未低到失去参考意义",
+  }[bucket];
+  return (
+    <div className={`bucket-section bucket-${bucket}`}>
+      <div className="bucket-head">
+        <span className={`pill ${bucket === "冲刺" ? "pill-chong" : bucket === "稳妥" ? "pill-wen" : "pill-bao"}`}>{bucket}</span>
+        <span className="bucket-count">{items.length} {unit}</span>
+        <span className="bucket-desc">{desc}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function GroupedRows({ items, unit, renderItem }) {
+  return (
+    <>
+      {["冲刺", "稳妥", "保底"].map((bucket) => {
+        const bucketItems = items.filter(item => item.bucket === bucket);
+        return (
+          <BucketSection key={bucket} bucket={bucket} items={bucketItems} unit={unit}>
+            {bucketItems.map(renderItem)}
+          </BucketSection>
+        );
+      })}
+    </>
+  );
 }
 
 function AISidebar({ items, score, mode }) {

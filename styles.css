@@ -507,6 +507,31 @@ input, select { font-family: inherit; color: inherit; }
 .school-list {
   padding: 0 8px 8px;
 }
+.bucket-section {
+  border-top: 1px solid var(--border);
+}
+.bucket-section:first-child {
+  border-top: 0;
+}
+.bucket-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  background: #fbfcff;
+}
+.bucket-section.bucket-冲刺 .bucket-head { background: #fff8f4; }
+.bucket-section.bucket-稳妥 .bucket-head { background: #f5fbf7; }
+.bucket-section.bucket-保底 .bucket-head { background: #f5fbf7; }
+.bucket-count {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 700;
+}
+.bucket-desc {
+  font-size: 12px;
+  color: var(--ink-3);
+}
 .row {
   display: grid;
   grid-template-columns: 36px 56px minmax(220px, 1.4fr) repeat(6, minmax(0, 1fr)) 132px 100px;
